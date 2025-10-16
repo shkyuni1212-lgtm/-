@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>실시간 버튼 카운트</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+</head>
+<body>
+<button id="connectBtn">아두이노 연결</button>
+<canvas id="barChart" width="600" height="400"></canvas>
+
+<script>
+// 🧭 오늘 날짜를 '2025-10-16' 형식으로 반환
+function getTodayKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
+}
+
+let port;
+let reader;
+
+// ✅ 로컬 저장 데이터 불러오기
+let savedCounts = JSON.parse(localStorage.getItem("buttonCounts"));
+let savedDate = localStorage.getItem("savedDate");
+let today = getTodayKey();
+
+// 날짜가 같으면 기존 데이터 유지, 다르면 초기화
+let counts = (savedCounts && savedDate === today) ? savedCounts : [0,0,0,0,0];
+
+// 🎨 Chart.js 초기화
+const ctx = document.getElementById('barChart').getContext('2d');
+const data = {
+    labels: ['매우 만족', '만족', '보통', '불만족', '매우 불만족'],
+    datasets: [{
+        label: '카운트',
+        data: counts,
+        backgroundColor: ['#28a745', '#20c997', '#ffc107', '#007bff', '#dc3545']
+    }]
+};
+
+const barChart = new Chart(ctx, {
+    type: 'bar',
+    data: data,
+    options: { 
+        animation: false,
+        plugins: {
+            legend: { display: false },
+            datalabels: {
+                color: 'black',
+                anchor: 'end',
+                align: 'start',
+                font: { weight: 'bold', size: 14 },
+                formatter: (value) => value
+            }
+        },
+        scales: { 
+            y: { 
+                beginAtZero: true,
+                suggestedMax: 100,
+                ticks: { stepSize: 10 }
+            }
+        }
+    },
+    plugins: [ChartDataLabels]
+});
+
+// 🧩 아두이노 연결 버튼
+document.getElementById('connectBtn').addEventListener('click', async () => {
+    try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 9600 });
+        reader = port.readable.getReader();
+        readLoop();
+    } catch (err) {
+        console.error("연결 실패:", err);
+    }
+});
+
+// 🔄 실시간 데이터 읽기
+async function readLoop() {
+    let buffer = '';
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += new TextDecoder().decode(value);
+        let lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (let line of lines) {
+            const newCounts = line.trim().split(',').map(Number);
+            if (newCounts.length === 5) {
+                const now = getTodayKey();
+
+                // ✅ 날짜가 바뀌면 자동 초기화
+                if (now !== today) {
+                    counts = [0,0,0,0,0];
+                    today = now;
+                } else {
+                    counts = newCounts;
+                }
+
+                // ✅ 저장
+                localStorage.setItem("buttonCounts", JSON.stringify(counts));
+                localStorage.setItem("savedDate", today);
+
+                // ✅ 그래프 업데이트
+                barChart.data.datasets[0].data = counts;
+                barChart.update();
+            }
+        }
+    }
+}
+</script>
+</body>
+</html>
+
