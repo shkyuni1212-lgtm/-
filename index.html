@@ -7,28 +7,24 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 </head>
 <body>
+
 <button id="connectBtn">아두이노 연결</button>
+<select id="dateSelect"></select>
 <canvas id="barChart" width="600" height="400"></canvas>
 
 <script>
-// 🧭 오늘 날짜를 '2025-10-16' 형식으로 반환
+// 오늘 날짜 반환
 function getTodayKey() {
     const d = new Date();
     return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
 }
 
-let port;
-let reader;
-
-// ✅ 로컬 저장 데이터 불러오기
-let savedCounts = JSON.parse(localStorage.getItem("buttonCounts"));
-let savedDate = localStorage.getItem("savedDate");
+// 날짜별 저장 불러오기
+let allCounts = JSON.parse(localStorage.getItem("allButtonCounts")) || {};
 let today = getTodayKey();
+let counts = allCounts[today] || [0,0,0,0,0];
 
-// 날짜가 같으면 기존 데이터 유지, 다르면 초기화
-let counts = (savedCounts && savedDate === today) ? savedCounts : [0,0,0,0,0];
-
-// 🎨 Chart.js 초기화
+// Chart.js 초기화
 const ctx = document.getElementById('barChart').getContext('2d');
 const data = {
     labels: ['매우 만족', '만족', '보통', '불만족', '매우 불만족'],
@@ -55,17 +51,39 @@ const barChart = new Chart(ctx, {
             }
         },
         scales: { 
-            y: { 
-                beginAtZero: true,
-                suggestedMax: 100,
-                ticks: { stepSize: 10 }
-            }
+            y: { beginAtZero: true, suggestedMax: 100, ticks: { stepSize: 10 } }
         }
     },
     plugins: [ChartDataLabels]
 });
 
-// 🧩 아두이노 연결 버튼
+// 날짜 선택 드롭다운
+const dateSelect = document.getElementById('dateSelect');
+function updateDateSelect() {
+    dateSelect.innerHTML = '';
+    Object.keys(allCounts).sort().forEach(date => {
+        const option = document.createElement('option');
+        option.value = date;
+        option.textContent = date;
+        if (date === today) option.selected = true;
+        dateSelect.appendChild(option);
+    });
+}
+updateDateSelect();
+
+// 선택한 날짜 상태
+let selectedDate = today;
+
+// 날짜 선택 시 그래프 변경
+dateSelect.addEventListener('change', () => {
+    selectedDate = dateSelect.value;
+    barChart.data.datasets[0].data = allCounts[selectedDate] || [0,0,0,0,0];
+    barChart.update();
+});
+
+// 아두이노 연결
+let port;
+let reader;
 document.getElementById('connectBtn').addEventListener('click', async () => {
     try {
         port = await navigator.serial.requestPort();
@@ -77,7 +95,7 @@ document.getElementById('connectBtn').addEventListener('click', async () => {
     }
 });
 
-// 🔄 실시간 데이터 읽기
+// 실시간 데이터 읽기
 async function readLoop() {
     let buffer = '';
     while (true) {
@@ -90,22 +108,22 @@ async function readLoop() {
             const newCounts = line.trim().split(',').map(Number);
             if (newCounts.length === 5) {
                 const now = getTodayKey();
+                if (now !== today) counts = [0,0,0,0,0];
+                counts = newCounts;
 
-                // ✅ 날짜가 바뀌면 자동 초기화
-                if (now !== today) {
-                    counts = [0,0,0,0,0];
-                    today = now;
-                } else {
-                    counts = newCounts;
+                // 날짜별 저장
+                today = now;
+                allCounts[today] = counts;
+                localStorage.setItem("allButtonCounts", JSON.stringify(allCounts));
+
+                // 드롭다운 갱신
+                updateDateSelect();
+
+                // 오늘 선택되어 있을 때만 그래프 업데이트
+                if (selectedDate === today) {
+                    barChart.data.datasets[0].data = counts;
+                    barChart.update();
                 }
-
-                // ✅ 저장
-                localStorage.setItem("buttonCounts", JSON.stringify(counts));
-                localStorage.setItem("savedDate", today);
-
-                // ✅ 그래프 업데이트
-                barChart.data.datasets[0].data = counts;
-                barChart.update();
             }
         }
     }
@@ -113,4 +131,3 @@ async function readLoop() {
 </script>
 </body>
 </html>
-
