@@ -10,21 +10,25 @@
 
 <button id="connectBtn">아두이노 연결</button>
 <select id="dateSelect"></select>
+<button id="exportBtn">CSV 내보내기</button>
+<input type="file" id="importFile" accept=".csv" style="display:none;">
+<button id="importBtn">CSV 불러오기</button>
+
 <canvas id="barChart" width="600" height="400"></canvas>
 
 <script>
-// 오늘 날짜 반환
+// 🗓 오늘 날짜 구하기
 function getTodayKey() {
     const d = new Date();
     return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
 }
 
-// 날짜별 저장 불러오기
+// 📦 localStorage 불러오기
 let allCounts = JSON.parse(localStorage.getItem("allButtonCounts")) || {};
 let today = getTodayKey();
 let counts = allCounts[today] || [0,0,0,0,0];
 
-// Chart.js 초기화
+// 🎨 Chart.js 그래프 초기화
 const ctx = document.getElementById('barChart').getContext('2d');
 const data = {
     labels: ['매우 만족', '만족', '보통', '불만족', '매우 불만족'],
@@ -57,7 +61,7 @@ const barChart = new Chart(ctx, {
     plugins: [ChartDataLabels]
 });
 
-// 날짜 선택 드롭다운
+// 📅 날짜 선택 드롭다운
 const dateSelect = document.getElementById('dateSelect');
 function updateDateSelect() {
     dateSelect.innerHTML = '';
@@ -71,17 +75,14 @@ function updateDateSelect() {
 }
 updateDateSelect();
 
-// 선택한 날짜 상태
 let selectedDate = today;
-
-// 날짜 선택 시 그래프 변경
 dateSelect.addEventListener('change', () => {
     selectedDate = dateSelect.value;
     barChart.data.datasets[0].data = allCounts[selectedDate] || [0,0,0,0,0];
     barChart.update();
 });
 
-// 아두이노 연결
+// 🔌 아두이노 연결
 let port;
 let reader;
 document.getElementById('connectBtn').addEventListener('click', async () => {
@@ -95,7 +96,7 @@ document.getElementById('connectBtn').addEventListener('click', async () => {
     }
 });
 
-// 실시간 데이터 읽기
+// 🔄 실시간 데이터 읽기
 async function readLoop() {
     let buffer = '';
     while (true) {
@@ -111,15 +112,11 @@ async function readLoop() {
                 if (now !== today) counts = [0,0,0,0,0];
                 counts = newCounts;
 
-                // 날짜별 저장
                 today = now;
                 allCounts[today] = counts;
                 localStorage.setItem("allButtonCounts", JSON.stringify(allCounts));
-
-                // 드롭다운 갱신
                 updateDateSelect();
 
-                // 오늘 선택되어 있을 때만 그래프 업데이트
                 if (selectedDate === today) {
                     barChart.data.datasets[0].data = counts;
                     barChart.update();
@@ -128,6 +125,55 @@ async function readLoop() {
         }
     }
 }
+
+// 💾 CSV 내보내기
+document.getElementById('exportBtn').addEventListener('click', () => {
+    let csv = "날짜,매우만족,만족,보통,불만족,매우불만족\n";
+    for (const [date, arr] of Object.entries(allCounts)) {
+        csv += `${date},${arr.join(',')}\n`;
+    }
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = "button_data.csv";
+    a.click();
+
+    URL.revokeObjectURL(url);
+});
+
+// 📂 CSV 불러오기
+const importFile = document.getElementById('importFile');
+document.getElementById('importBtn').addEventListener('click', () => importFile.click());
+
+importFile.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const lines = event.target.result.trim().split('\n');
+        const newData = {};
+        lines.slice(1).forEach(line => {
+            const [date, ...nums] = line.split(',');
+            newData[date] = nums.map(Number);
+        });
+        allCounts = newData;
+        localStorage.setItem("allButtonCounts", JSON.stringify(allCounts));
+        updateDateSelect();
+
+        // 불러온 데이터 첫 날짜로 표시
+        const firstDate = Object.keys(allCounts)[0];
+        selectedDate = firstDate;
+        barChart.data.datasets[0].data = allCounts[firstDate];
+        barChart.update();
+
+        alert("CSV 데이터가 불러와졌습니다!");
+    };
+    reader.readAsText(file);
+});
 </script>
 </body>
 </html>
