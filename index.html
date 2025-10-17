@@ -2,7 +2,6 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>실시간 버튼 카운트</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 </head>
@@ -17,107 +16,98 @@
 <canvas id="barChart" width="600" height="400"></canvas>
 
 <script>
-// 🗓 오늘 날짜 구하기
 function getTodayKey() {
     const d = new Date();
     return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
 }
 
-// 📦 localStorage 불러오기
+// localStorage 불러오기
 let allCounts = JSON.parse(localStorage.getItem("allButtonCounts")) || {};
 let today = getTodayKey();
 let counts = allCounts[today] || [0,0,0,0,0];
 
-// 🎨 Chart.js 그래프 초기화
+// Chart.js 초기화
 const ctx = document.getElementById('barChart').getContext('2d');
-const data = {
-    labels: ['매우 만족', '만족', '보통', '불만족', '매우 불만족'],
-    datasets: [{
-        label: '카운트',
-        data: counts,
-        backgroundColor: ['#28a745', '#20c997', '#ffc107', '#007bff', '#dc3545']
-    }]
-};
-
 const barChart = new Chart(ctx, {
     type: 'bar',
-    data: data,
-    options: { 
-        animation: false,
-        plugins: {
-            legend: { display: false },
-            datalabels: {
-                color: 'black',
-                anchor: 'end',
-                align: 'start',
-                font: { weight: 'bold', size: 14 },
-                formatter: (value) => value
+    data: {
+        labels: ['매우 만족','만족','보통','불만족','매우 불만족'],
+        datasets:[{
+            data: counts,
+            backgroundColor: ['#28a745','#20c997','#ffc107','#007bff','#dc3545']
+        }]
+    },
+    options: {
+        animation:false,
+        plugins:{
+            legend:{display:false},
+            datalabels:{
+                color:'black', anchor:'end', align:'start',
+                font:{weight:'bold', size:14},
+                formatter:(v)=>v
             }
         },
-        scales: { 
-            y: { beginAtZero: true, suggestedMax: 100, ticks: { stepSize: 10 } }
-        }
+        scales:{ y:{beginAtZero:true, suggestedMax:100, ticks:{stepSize:10}} }
     },
-    plugins: [ChartDataLabels]
+    plugins:[ChartDataLabels]
 });
 
-// 📅 날짜 선택 드롭다운
+// 날짜 선택 드롭다운
 const dateSelect = document.getElementById('dateSelect');
-function updateDateSelect() {
+function updateDateSelect(){
     dateSelect.innerHTML = '';
-    Object.keys(allCounts).sort().forEach(date => {
-        const option = document.createElement('option');
-        option.value = date;
-        option.textContent = date;
-        if (date === today) option.selected = true;
-        dateSelect.appendChild(option);
+    Object.keys(allCounts).sort().forEach(date=>{
+        const opt=document.createElement('option');
+        opt.value=date; opt.textContent=date;
+        if(date===today) opt.selected=true;
+        dateSelect.appendChild(opt);
     });
 }
 updateDateSelect();
 
 let selectedDate = today;
-dateSelect.addEventListener('change', () => {
+dateSelect.addEventListener('change', ()=>{
     selectedDate = dateSelect.value;
     barChart.data.datasets[0].data = allCounts[selectedDate] || [0,0,0,0,0];
     barChart.update();
 });
 
-// 🔌 아두이노 연결
-let port;
-let reader;
-document.getElementById('connectBtn').addEventListener('click', async () => {
-    try {
+// 아두이노 연결
+let port, reader;
+document.getElementById('connectBtn').addEventListener('click', async ()=>{
+    try{
         port = await navigator.serial.requestPort();
-        await port.open({ baudRate: 9600 });
+        await port.open({baudRate:9600});
         reader = port.readable.getReader();
         readLoop();
-    } catch (err) {
-        console.error("연결 실패:", err);
-    }
+    }catch(e){ console.error("연결 실패:",e); }
 });
 
-// 🔄 실시간 데이터 읽기
-async function readLoop() {
-    let buffer = '';
-    while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
+// 실시간 읽기
+async function readLoop(){
+    let buffer='';
+    while(true){
+        const {value, done} = await reader.read();
+        if(done) break;
         buffer += new TextDecoder().decode(value);
         let lines = buffer.split('\n');
         buffer = lines.pop();
-        for (let line of lines) {
+        for(let line of lines){
             const newCounts = line.trim().split(',').map(Number);
-            if (newCounts.length === 5) {
-                const now = getTodayKey();
-                if (now !== today) counts = [0,0,0,0,0];
-                counts = newCounts;
+            if(newCounts.length===5){
+                // 오늘 데이터 존재하면 유지
+                if(!allCounts[today]) counts=[0,0,0,0,0]; 
+                else counts = allCounts[today];
 
-                today = now;
-                allCounts[today] = counts;
+                // 누른 버튼만 추가
+                for(let i=0;i<5;i++) counts[i]+=newCounts[i];
+
+                today = getTodayKey();
+                allCounts[today]=counts;
                 localStorage.setItem("allButtonCounts", JSON.stringify(allCounts));
                 updateDateSelect();
 
-                if (selectedDate === today) {
+                if(selectedDate===today){
                     barChart.data.datasets[0].data = counts;
                     barChart.update();
                 }
@@ -126,51 +116,40 @@ async function readLoop() {
     }
 }
 
-// 💾 CSV 내보내기
-document.getElementById('exportBtn').addEventListener('click', () => {
-    let csv = "날짜,매우만족,만족,보통,불만족,매우불만족\n";
-    for (const [date, arr] of Object.entries(allCounts)) {
-        csv += `${date},${arr.join(',')}\n`;
-    }
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = "button_data.csv";
-    a.click();
-
+// CSV 내보내기
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+    let csv="날짜,매우만족,만족,보통,불만족,매우불만족\n";
+    for(const [d, arr] of Object.entries(allCounts)) csv+=`${d},${arr.join(',')}\n`;
+    const blob=new Blob([csv], {type:"text/csv;charset=utf-8;"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download="button_data.csv"; a.click();
     URL.revokeObjectURL(url);
 });
 
-// 📂 CSV 불러오기
+// CSV 불러오기
 const importFile = document.getElementById('importFile');
-document.getElementById('importBtn').addEventListener('click', () => importFile.click());
-
-importFile.addEventListener('change', (e) => {
+document.getElementById('importBtn').addEventListener('click', ()=>importFile.click());
+importFile.addEventListener('change', (e)=>{
     const file = e.target.files[0];
-    if (!file) return;
-
+    if(!file) return;
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = event=>{
         const lines = event.target.result.trim().split('\n');
         const newData = {};
-        lines.slice(1).forEach(line => {
-            const [date, ...nums] = line.split(',');
-            newData[date] = nums.map(Number);
+        lines.slice(1).forEach(line=>{
+            const [date,...nums]=line.split(',');
+            newData[date]=nums.map(Number);
         });
-        allCounts = newData;
+        allCounts=newData;
         localStorage.setItem("allButtonCounts", JSON.stringify(allCounts));
         updateDateSelect();
 
-        // 불러온 데이터 첫 날짜로 표시
-        const firstDate = Object.keys(allCounts)[0];
-        selectedDate = firstDate;
-        barChart.data.datasets[0].data = allCounts[firstDate];
+        const firstDate=Object.keys(allCounts)[0];
+        selectedDate=firstDate;
+        barChart.data.datasets[0].data=allCounts[firstDate];
         barChart.update();
-
-        alert("CSV 데이터가 불러와졌습니다!");
+        alert("CSV 불러오기 완료!");
     };
     reader.readAsText(file);
 });
