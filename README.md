@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>실시간 버튼 카운트 (Firebase 연동)</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+
+<!-- ✅ Firebase SDK (compat 버전) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyA1E8FrUCjYAMIerhv1VRR0tleHsORzYxM",
+    authDomain: "sugong-an-seung-jae.firebaseapp.com",
+    databaseURL: "https://sugong-an-seung-jae-default-rtdb.firebaseio.com",
+    projectId: "sugong-an-seung-jae",
+    storageBucket: "sugong-an-seung-jae.firebasestorage.app",
+    messagingSenderId: "421129850805",
+    appId: "1:421129850805:web:c0c3c4029f6bbd9f6693fc",
+    measurementId: "G-YCES0RBZ7M"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+</script>
+</head>
+
+<body>
+<button id="connectBtn">아두이노 연결</button>
+<select id="dateSelect"></select>
+<button id="exportBtn">CSV 내보내기</button>
+<input type="file" id="importFile" accept=".csv" style="display:none;">
+<button id="importBtn">CSV 불러오기</button>
+<canvas id="barChart" width="600" height="400"></canvas>
+
+<script>
+function getTodayKey(){
+  const d=new Date();
+  return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
+}
+
+let allCounts={};
+let today=getTodayKey();
+let counts=[0,0,0,0,0];
+let selectedDate=today;
+
+// ✅ Firebase에서 전체 데이터 불러오기
+async function loadFromFirebase(){
+  const snapshot = await db.ref("counts").once("value");
+  if(snapshot.exists()) allCounts = snapshot.val();
+  else allCounts = {};
+  if(!allCounts[today]) allCounts[today] = [0,0,0,0,0];
+  counts = allCounts[today];
+  updateDateSelect();
+  updateChart(counts);
+}
+
+// ✅ Firebase에 전체 데이터 저장
+function saveToFirebase(){
+  db.ref("counts").set(allCounts);
+}
+
+const ctx=document.getElementById('barChart').getContext('2d');
+const barChart=new Chart(ctx,{
+  type:'bar',
+  data:{labels:['매우 만족','만족','보통','불만족','매우 불만족'],datasets:[{data:counts,backgroundColor:['#28a745','#20c997','#ffc107','#007bff','#dc3545']}]},
+  options:{
+    animation:false,
+    plugins:{
+      legend:{display:false},
+      datalabels:{color:'black',anchor:'end',align:'start',font:{weight:'bold',size:14},formatter:v=>v}
+    },
+    scales:{y:{beginAtZero:true,suggestedMax:100,ticks:{stepSize:10}}}
+  },
+  plugins:[ChartDataLabels]
+});
+
+function updateChart(data){
+  barChart.data.datasets[0].data = data;
+  barChart.update();
+}
+
+const dateSelect=document.getElementById('dateSelect');
+function updateDateSelect(){
+  dateSelect.innerHTML='';
+  Object.keys(allCounts).sort().forEach(date=>{
+    const opt=document.createElement('option');
+    opt.value=date; opt.textContent=date;
+    if(date===today) opt.selected=true;
+    dateSelect.appendChild(opt);
+  });
+}
+
+dateSelect.addEventListener('change',()=>{
+  selectedDate=dateSelect.value;
+  updateChart(allCounts[selectedDate] || [0,0,0,0,0]);
+});
+
+// ✅ 아두이노 연결
+let port,reader;
+document.getElementById('connectBtn').addEventListener('click',async()=>{
+  try{
+    port=await navigator.serial.requestPort();
+    await port.open({baudRate:9600});
+    await new Promise(r=>setTimeout(r,1000)); // 연결 안정 대기
+    reader=port.readable.getReader();
+    readLoop();
+  }catch(e){ console.error("연결 실패:",e); }
+});
+
+async function readLoop(){
+  let buffer='';
+  while(true){
+    const {value,done}=await reader.read();
+    if(done) break;
+    buffer+=new TextDecoder().decode(value);
+    let lines=buffer.split('\n');
+    buffer=lines.pop();
+    for(let line of lines){
+      const newCounts=line.trim().split(',').map(Number);
+      if(newCounts.length===5){
+        // 🔄 누른 버튼만 반영
+        for(let i=0;i<5;i++){
+          if(newCounts[i]>0) counts[i]++;
+        }
+
+        today=getTodayKey();
+        allCounts[today]=counts;
+        saveToFirebase();
+
+        if(selectedDate===today){
+          updateChart(counts);
+        }
+      }
+    }
+  }
+}
+
+// ✅ CSV 내보내기
+document.getElementById('exportBtn').addEventListener('click',()=>{
+  let csv="날짜,매우만족,만족,보통,불만족,매우불만족\n";
+  for(const [d,arr] of Object.entries(allCounts)) csv+=`${d},${arr.join(',')}\n`;
+  const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download="button_data.csv"; a.click();
+  URL.revokeObjectURL(url);
+});
+
+// ✅ CSV 불러오기
+const importFile=document.getElementById('importFile');
+document.getElementById('importBtn').addEventListener('click',()=>importFile.click());
+importFile.addEventListener('change',(e)=>{
+  const file=e.target.files[0];
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onload=event=>{
+    const lines=event.target.result.trim().split('\n');
+    const newData={};
+    lines.slice(1).forEach(line=>{
+      const [date,...nums]=line.split(',');
+      newData[date]=nums.map(Number);
+    });
+    allCounts=newData;
+    saveToFirebase();
+    updateDateSelect();
+    selectedDate=today;
+    counts=allCounts[today]||[0,0,0,0,0];
+    updateChart(counts);
+    alert("CSV 불러오기 완료!");
+  };
+  reader.readAsText(file);
+});
+
+// ✅ 시작 시 Firebase에서 데이터 불러오기
+loadFromFirebase();
+</script>
+</body>
+</html>
