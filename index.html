@@ -68,9 +68,9 @@ const barChart=new Chart(ctx,{
     animation:false,
     plugins:{
       legend:{display:false},
-      datalabels:{color:'black',anchor:'end',align:'start',font:{weight:'bold',size:14},formatter:v=>v}
+      datalabels:{color:'black',anchor:'end',align:'start',font:{weight:'bold',size:20},formatter:v=>v}
     },
-    scales:{y:{beginAtZero:true,suggestedMax:100,ticks:{stepSize:10}}}
+    scales:{y:{beginAtZero:true,suggestedMax:70,ticks:{stepSize:10}}}
   },
   plugins:[ChartDataLabels]
 });
@@ -177,5 +177,6 @@ loadFromFirebase();
 </body>
 </html>
 </html>
+
 
 
